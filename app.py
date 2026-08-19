@@ -4,14 +4,14 @@ import zipfile
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Myntra Photo Manager", layout="centered")
+st.set_page_config(page_title="Photo Manager", layout="centered")
 
-st.title("👕 Myntra Photo Manager Web App")
+st.title("👕 Photo Manager Web App")
 
 # Main Screen Options (Radio buttons to switch between features)
 app_mode = st.radio(
     "Choose Mode:",
-    ["📂 Sort & Filter Photos (Excel Match)", "✏️ Bulk Rename Photos"],
+    ["📂 Sort & Filter Photos (Excel Match)", "✏️ Advanced Bulk Rename Photos"],
     horizontal=True,
 )
 
@@ -87,13 +87,13 @@ if app_mode == "📂 Sort & Filter Photos (Excel Match)":
       st.error(f"Error reading Excel file: {e}")
 
 # ==========================================
-# MODE 2: BULK RENAME PHOTOS
+# MODE 2: ADVANCED BULK RENAME PHOTOS
 # ==========================================
-elif app_mode == "✏️ Bulk Rename Photos":
-  st.header("✏️ Bulk Rename Photo Files")
+elif app_mode == "✏️ Advanced Bulk Rename Photos":
+  st.header("✏️ Advanced Bulk Rename Photo Files")
   st.write(
-      "Upload your photos, specify what to find/remove, and download them"
-      " renamed!"
+      "Upload your photos, apply multiple rules (like replacing w26 with w25),"
+      " and download them renamed!"
   )
 
   rename_images = st.file_uploader(
@@ -106,17 +106,34 @@ elif app_mode == "✏️ Bulk Rename Photos":
   if rename_images:
     st.info(f"Loaded {len(rename_images)} images for renaming.")
 
+    # Show options layout
+    st.markdown("### Renaming Rules")
     col1, col2 = st.columns(2)
+
     with col1:
-      text_to_remove = st.text_input(
-          "Text to find / remove:",
-          placeholder="e.g. -WHITE or unwanted word",
+      text_to_find = st.text_input(
+          "Find text (e.g. w26):", placeholder="Text you want to change"
       )
     with col2:
-      text_to_add = st.text_input(
-          "Replace with (leave blank to remove):",
-          placeholder="leave empty to delete",
+      text_replace = st.text_input(
+          "Replace with (e.g. w25):", placeholder="New text (leave blank to delete)"
       )
+
+    st.markdown("---")
+    col3, col4 = st.columns(2)
+    with col3:
+      remove_prefix = st.text_input(
+          "Remove from START (Prefix):", placeholder="e.g. ABC-"
+      )
+    with col4:
+      remove_suffix = st.text_input(
+          "Remove from END (Suffix before extension):", placeholder="e.g. -Copy"
+      )
+
+    st.markdown("---")
+    case_option = st.selectbox(
+        "Change Text Case (Optional):", ["None", "UPPERCASE", "lowercase"]
+    )
 
     if st.button("Process & Rename Files"):
       rename_zip_buffer = io.BytesIO()
@@ -129,9 +146,25 @@ elif app_mode == "✏️ Bulk Rename Photos":
           original_name = img.name
           name_part, ext = os.path.splitext(original_name)
 
-          # Perform find and replace
-          new_name_part = name_part.replace(text_to_remove, text_to_add)
-          new_filename = new_name_part + ext
+          # 1. Find and Replace (e.g. w26 -> w25)
+          if text_to_find:
+            name_part = name_part.replace(text_to_find, text_replace)
+
+          # 2. Remove Prefix from start
+          if remove_prefix and name_part.startswith(remove_prefix):
+            name_part = name_part[len(remove_prefix) :]
+
+          # 3. Remove Suffix from end
+          if remove_suffix and name_part.endswith(remove_suffix):
+            name_part = name_part[: -len(remove_suffix)]
+
+          # 4. Change Case
+          if case_option == "UPPERCASE":
+            name_part = name_part.upper()
+          elif case_option == "lowercase":
+            name_part = name_part.lower()
+
+          new_filename = name_part + ext
 
           zip_file.writestr(new_filename, img.getvalue())
           renamed_count += 1
