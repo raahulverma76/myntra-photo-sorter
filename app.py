@@ -6,24 +6,27 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(page_title="Photo Manager", layout="centered")
+
 st.title("👕 Photo Manager Web App")
 
-# Main Screen Options (Radio buttons to switch between features)
+# Main Screen Options (Radio buttons for 3 features)
 app_mode = st.radio(
     "Choose Mode:",
     [
         "📂 Sort & Filter Photos (Excel Match)",
         "✏️ Advanced Bulk Rename Photos",
+        "📁 Organize Photos by Style ID (New)",
     ],
     horizontal=True,
 )
+
 st.markdown("---")
 
 # ==========================================
-# MODE 1: SORT & FILTER PHOTOS
+# MODE 1: SORT & FILTER PHOTOS (PURANA OPTION 1)
 # ==========================================
 if app_mode == "📂 Sort & Filter Photos (Excel Match)":
-  st.header("1. Upload Excel File & Images")
+  st.header("1. Upload Excel File")
   excel_file = st.file_uploader(
       "Choose an Excel file (.xlsx)", type=["xlsx"], key="sort_excel"
   )
@@ -33,91 +36,63 @@ if app_mode == "📂 Sort & Filter Photos (Excel Match)":
       df = pd.read_excel(excel_file)
       st.success("Excel file successfully loaded!")
 
-      # Display column selection
-      columns = df.columns.tolist()
-      st.write("Preview of your Excel data:")
-      st.dataframe(df.head(3))
+      st.header("2. Choose Column with Filenames")
+      column_name = st.selectbox(
+          "Select the column that contains the picture names:",
+          df.columns,
+          key="sort_col",
+      )
 
-      col1, col2 = st.columns(2)
-      with col1:
-        style_col = st.selectbox(
-            "Select Style ID Column",
-            columns,
-            index=0 if len(columns) > 0 else 0,
-        )
-      with col2:
-        # Assuming you have an image name column or want to match against a specific text column like 'VAN' or SKU
-        image_ref_col = st.selectbox(
-            "Select Column containing Image/Reference Name",
-            columns,
-            index=2 if len(columns) > 2 else 0,
-        )
+      target_files = (
+          df[column_name].dropna().astype(str).str.strip().tolist()
+      )
+      st.info(f"Found {len(target_files)} filenames listed in that column.")
 
-      # Image folder upload
+      st.header("3. Upload Pictures")
       uploaded_images = st.file_uploader(
-          "Upload all corresponding image files",
+          "Upload all the picture files (you can select multiple)",
           type=["jpg", "jpeg", "png"],
           accept_multiple_files=True,
-          key="match_images",
+          key="sort_images",
       )
 
       if uploaded_images:
-        st.info(f"Loaded {len(uploaded_images)} images from folder.")
+        st.info(f"Uploaded {len(uploaded_images)} images to process.")
 
-        if st.button("Process & Organize Photos"):
-          with st.spinner("Sorting images into Style ID folders..."):
-            # Create an in-memory zip file to store folders
-            zip_buffer = io.BytesIO()
+        if st.button("Match and Separate Images"):
+          matched_files = []
+          unmatched_count = 0
 
-            with zipfile.ZipFile(
-                zip_buffer, "w", zipfile.ZIP_DEFLATED
-            ) as zip_file:
-              # Map clean reference values from Excel to Style IDs
-              # We will build a dictionary: clean_ref -> style_id
-              mapping = {}
-              for _, row in df.iterrows():
-                s_id = str(row[style_col]).strip()
-                ref_val = str(row[image_ref_col]).strip()
-                mapping[ref_val.upper()] = s_id
+          zip_buffer = io.BytesIO()
+          with zipfile.ZipFile(
+              zip_buffer, "w", zipfile.ZIP_DEFLATED
+          ) as zip_file:
+            for img in uploaded_images:
+              if img.name in target_files:
+                zip_file.writestr(img.name, img.getvalue())
+                matched_files.append(img.name)
+              else:
+                unmatched_count += 1
 
-              matched_count = 0
+          zip_buffer.seek(0)
 
-              for img_file in uploaded_images:
-                original_filename = img_file.name
-                # Strip file extension for matching
-                base_name_ext = os.path.splitext(original_filename)[0]
+          st.success(
+              f"Done! Found {len(matched_files)} matching pictures out of"
+              f" {len(target_files)} targeted items."
+          )
 
-                # Remove suffixes like (2), (3) to match Excel data e.g. M20126BEIGE(2) -> M20126BEIGE
-                clean_base_name = re.sub(
-                    r"\(\d+\)$", "", base_name_ext
-                ).strip()
-
-                # Find if this clean base name exists in our Excel mapping
-                upper_key = clean_base_name.upper()
-                if upper_key in mapping:
-                  style_folder = mapping[upper_key]
-                  # Path inside the zip file
-                  zip_path = f"{style_folder}/{original_filename}"
-                  zip_file.writestr(zip_path, img_file.getvalue())
-                  matched_count += 1
-
-            zip_buffer.seek(0)
-            st.success(
-                f"Successfully matched and organized {matched_count} images!"
-            )
-
-            st.download_button(
-                label="📥 Download Organized Folders (ZIP)",
-                data=zip_buffer,
-                file_name="Organized_Style_Folders.zip",
-                mime="application/zip",
-            )
+          st.download_button(
+              label="📥 Download Separated Pictures (ZIP)",
+              data=zip_buffer,
+              file_name="matched_myntra_photos.zip",
+              mime="application/zip",
+          )
 
     except Exception as e:
       st.error(f"Error reading Excel file: {e}")
 
 # ==========================================
-# MODE 2: ADVANCED BULK RENAME PHOTOS
+# MODE 2: ADVANCED BULK RENAME PHOTOS (PURANA OPTION 2)
 # ==========================================
 elif app_mode == "✏️ Advanced Bulk Rename Photos":
   st.header("✏️ Advanced Bulk Rename Photo Files")
@@ -135,3 +110,157 @@ elif app_mode == "✏️ Advanced Bulk Rename Photos":
 
   if rename_images:
     st.info(f"Loaded {len(rename_images)} images for renaming.")
+
+    st.markdown("### Renaming Rules")
+    col1, col2 = st.columns(2)
+
+    with col1:
+      text_to_find = st.text_input(
+          "Find text (e.g. w26):", placeholder="Text you want to change"
+      )
+    with col2:
+      text_replace = st.text_input(
+          "Replace with (e.g. w25):",
+          placeholder="New text (leave blank to delete)",
+      )
+
+    st.markdown("---")
+    col3, col4 = st.columns(2)
+    with col3:
+      remove_prefix = st.text_input(
+          "Remove from START (Prefix):", placeholder="e.g. ABC-"
+      )
+    with col4:
+      remove_suffix = st.text_input(
+          "Remove from END (Suffix before extension):", placeholder="e.g. -Copy"
+      )
+
+    st.markdown("---")
+    case_option = st.selectbox(
+        "Change Text Case (Optional):", ["None", "UPPERCASE", "lowercase"]
+    )
+
+    if st.button("Process & Rename Files"):
+      rename_zip_buffer = io.BytesIO()
+      renamed_count = 0
+
+      with zipfile.ZipFile(
+          rename_zip_buffer, "w", zipfile.ZIP_DEFLATED
+      ) as zip_file:
+        for img in rename_images:
+          original_name = img.name
+          name_part, ext = os.path.splitext(original_name)
+
+          if text_to_find:
+            name_part = name_part.replace(text_to_find, text_replace)
+          if remove_prefix and name_part.startswith(remove_prefix):
+            name_part = name_part[len(remove_prefix) :]
+          if remove_suffix and name_part.endswith(remove_suffix):
+            name_part = name_part[: -len(remove_suffix)]
+
+          if case_option == "UPPERCASE":
+            name_part = name_part.upper()
+          elif case_option == "lowercase":
+            name_part = name_part.lower()
+
+          new_filename = name_part + ext
+          zip_file.writestr(new_filename, img.getvalue())
+          renamed_count += 1
+
+      rename_zip_buffer.seek(0)
+      st.success(
+          f"Successfully renamed {renamed_count} files! Click below to download."
+      )
+
+      st.download_button(
+          label="📥 Download Renamed Pictures (ZIP)",
+          data=rename_zip_buffer,
+          file_name="renamed_myntra_photos.zip",
+          mime="application/zip",
+      )
+
+# ==========================================
+# MODE 3: ORGANIZE PHOTOS BY STYLE ID (NAYA OPTION)
+# ==========================================
+elif app_mode == "📁 Organize Photos by Style ID (New)":
+  st.header("📁 Create Style ID Folders & Sort Images")
+  st.write(
+      "Yeh option Excel ke Style ID column ke hisaab se folders banayega aur"
+      " duplicate images (jaise `(2)`, `(3)`) ko bhi sahi Style ID folder ke"
+      " andar daal dega."
+  )
+
+  excel_file_3 = st.file_uploader(
+      "Choose Excel file (.xlsx)", type=["xlsx"], key="style_excel"
+  )
+
+  if excel_file_3:
+    try:
+      df_style = pd.read_excel(excel_file_3)
+      st.success("Excel loaded successfully!")
+
+      cols = df_style.columns.tolist()
+      c1, c2 = st.columns(2)
+      with c1:
+        style_col = st.selectbox(
+            "Select STYLE ID Column:", cols, key="style_id_col"
+        )
+      with c2:
+        name_col = st.selectbox(
+            "Select Image/Reference Name Column (e.g. VAN/SKU):",
+            cols,
+            key="img_ref_col",
+        )
+
+      uploaded_imgs_3 = st.file_uploader(
+          "Upload all image files (with duplicates like name(2).jpg):",
+          type=["jpg", "jpeg", "png"],
+          accept_multiple_files=True,
+          key="style_images",
+      )
+
+      if uploaded_imgs_3:
+        st.info(f"Loaded {len(uploaded_imgs_3)} images.")
+
+        if st.button("Generate Style Folders & Zip"):
+          with st.spinner("Organizing into Style ID folders..."):
+            mapping = {}
+            for _, row in df_style.iterrows():
+              s_id = str(row[style_col]).strip()
+              r_val = str(row[name_col]).strip().upper()
+              mapping[r_val] = s_id
+
+            matched_count = 0
+            zip_buffer_3 = io.BytesIO()
+
+            with zipfile.ZipFile(
+                zip_buffer_3, "w", zipfile.ZIP_DEFLATED
+            ) as zip_file:
+              for img in uploaded_imgs_3:
+                orig_name = img.name
+                base_ext = os.path.splitext(orig_name)[0]
+
+                # Suffix hataane ke liye taaki M20126BEIGE(2) match ho sake M20126BEIGE se
+                clean_name = re.sub(r"\(\d+\)$", "", base_ext).strip().upper()
+
+                if clean_name in mapping:
+                  style_folder = mapping[clean_name]
+                  zip_path = f"{style_folder}/{orig_name}"
+                  zip_file.writestr(zip_path, img.getvalue())
+                  matched_count += 1
+
+            zip_buffer_3.seek(0)
+            st.success(
+                f"Successfully sorted {matched_count} images into Style ID"
+                " folders!"
+            )
+
+            st.download_button(
+                label="📥 Download Style Folders (ZIP)",
+                data=zip_buffer_3,
+                file_name="Style_ID_Folders.zip",
+                mime="application/zip",
+            )
+
+    except Exception as e:
+      st.error(f"Error: {e}")
