@@ -25,7 +25,7 @@ st.markdown("---")
 
 # Helper function to extract images from either single files or a ZIP upload
 def load_uploaded_images(uploaded_files, uploaded_zip):
-  image_list = []  # List of tuples: (filename, bytes_content)
+  image_list = []
 
   if uploaded_files:
     for f in uploaded_files:
@@ -36,7 +36,6 @@ def load_uploaded_images(uploaded_files, uploaded_zip):
       with zipfile.ZipFile(uploaded_zip, "r") as z:
         for filename in z.namelist():
           if filename.lower().endswith((".jpg", ".jpeg", ".png")) and not filename.startswith("__MACOSX/"):
-            # Extract just the file name without folder paths inside the zip
             base_name = os.path.basename(filename)
             if base_name:
               image_list.append((base_name, z.read(filename)))
@@ -100,7 +99,6 @@ if app_mode == "📂 Sort & Filter Photos (Excel Match)":
           ) as zip_file:
             for name, content in all_imgs:
               if name in target_files:
-                # Handle duplicates cleanly
                 final_name = name
                 if final_name in seen_names:
                   seen_names[final_name] += 1
@@ -220,7 +218,6 @@ elif app_mode == "✏️ Advanced Bulk Rename Photos":
 
           new_filename = name_part + ext
 
-          # Prevent duplicate filename overwrites inside ZIP
           if new_filename in seen_names:
             seen_names[new_filename] += 1
             new_filename = f"{name_part}_{seen_names[new_filename]}{ext}"
@@ -243,13 +240,14 @@ elif app_mode == "✏️ Advanced Bulk Rename Photos":
       )
 
 # ==========================================
-# MODE 3: ORGANIZE PHOTOS BY STYLE ID
+# MODE 3: ORGANIZE PHOTOS BY STYLE ID (UPDATED)
 # ==========================================
 elif app_mode == "📁 Organize Photos by Style ID (New)":
   st.header("📁 Create Style ID Folders & Sort Images")
   st.write(
-      "Upload Excel and images (or a ZIP folder) to sort them automatically"
-      " into Style ID folders, handling duplicates like `(2)`."
+      "Yeh option Excel aur images ko match karega, aur underscore `_` ya"
+      " brackets `(2)` ke baad ke hisse ko ignore karke sahi folder mein dal"
+      " dega."
   )
 
   excel_file_3 = st.file_uploader(
@@ -295,7 +293,11 @@ elif app_mode == "📁 Organize Photos by Style ID (New)":
             for _, row in df_style.iterrows():
               s_id = str(row[style_col]).strip()
               r_val = str(row[name_col]).strip().upper()
-              mapping[r_val] = s_id
+
+              # Excel side se bhi underscore ya extra suffix hata kar clean mapping banayein
+              r_val_clean = re.split(r"[_]", r_val)[0]
+              r_val_clean = re.sub(r"\(\d+\)$", "", r_val_clean).strip()
+              mapping[r_val_clean] = s_id
 
             matched_count = 0
             zip_buffer_3 = io.BytesIO()
@@ -306,12 +308,16 @@ elif app_mode == "📁 Organize Photos by Style ID (New)":
             ) as zip_file:
               for orig_name, content in uploaded_imgs_3:
                 base_ext = os.path.splitext(orig_name)[0]
-                clean_name = re.sub(r"\(\d+\)$", "", base_ext).strip().upper()
+
+                # Image name side se bhi (2), (3) aur underscore "_" ke baad ka sab hata do
+                clean_name = re.sub(r"\(\d+\)$", "", base_ext).strip()
+                clean_name = re.split(r"[_]", clean_name)[
+                    0
+                ].strip().upper()
 
                 if clean_name in mapping:
                   style_folder = mapping[clean_name]
 
-                  # Handle duplicate names inside the same folder path
                   final_name = orig_name
                   folder_key = f"{style_folder}/{final_name}"
                   if folder_key in seen_in_folder:
