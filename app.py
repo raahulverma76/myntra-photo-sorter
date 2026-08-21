@@ -22,6 +22,30 @@ app_mode = st.radio(
 
 st.markdown("---")
 
+
+# Helper function to extract images from either single files or a ZIP upload
+def load_uploaded_images(uploaded_files, uploaded_zip):
+  image_list = []  # List of tuples: (filename, bytes_content)
+
+  if uploaded_files:
+    for f in uploaded_files:
+      image_list.append((f.name, f.getvalue()))
+
+  if uploaded_zip:
+    try:
+      with zipfile.ZipFile(uploaded_zip, "r") as z:
+        for filename in z.namelist():
+          if filename.lower().endswith((".jpg", ".jpeg", ".png")) and not filename.startswith("__MACOSX/"):
+            # Extract just the file name without folder paths inside the zip
+            base_name = os.path.basename(filename)
+            if base_name:
+              image_list.append((base_name, z.read(filename)))
+    except Exception as e:
+      st.error(f"Error reading ZIP file: {e}")
+
+  return image_list
+
+
 # ==========================================
 # MODE 1: SORT & FILTER PHOTOS
 # ==========================================
@@ -48,34 +72,47 @@ if app_mode == "📂 Sort & Filter Photos (Excel Match)":
       )
       st.info(f"Found {len(target_files)} filenames listed in that column.")
 
-      st.header("3. Upload Pictures")
-      uploaded_images = st.file_uploader(
-          "Upload all the picture files (you can select multiple)",
+      st.header("3. Upload Pictures (Multiple Files OR ZIP)")
+      up_files = st.file_uploader(
+          "Upload individual pictures:",
           type=["jpg", "jpeg", "png"],
           accept_multiple_files=True,
           key="sort_images",
       )
+      up_zip = st.file_uploader(
+          "OR Upload a ZIP file containing pictures:",
+          type=["zip"],
+          key="sort_zip",
+      )
 
-      if uploaded_images:
-        st.info(f"Uploaded {len(uploaded_images)} images to process.")
+      all_imgs = load_uploaded_images(up_files, up_zip)
+
+      if all_imgs:
+        st.info(f"Loaded {len(all_imgs)} total images to process.")
 
         if st.button("Match and Separate Images"):
           matched_files = []
-          unmatched_count = 0
-
           zip_buffer = io.BytesIO()
+          seen_names = {}
+
           with zipfile.ZipFile(
               zip_buffer, "w", zipfile.ZIP_DEFLATED
           ) as zip_file:
-            for img in uploaded_images:
-              if img.name in target_files:
-                zip_file.writestr(img.name, img.getvalue())
-                matched_files.append(img.name)
-              else:
-                unmatched_count += 1
+            for name, content in all_imgs:
+              if name in target_files:
+                # Handle duplicates cleanly
+                final_name = name
+                if final_name in seen_names:
+                  seen_names[final_name] += 1
+                  name_part, ext = os.path.splitext(name)
+                  final_name = f"{name_part}_{seen_names[name]}{ext}"
+                else:
+                  seen_names[final_name] = 0
+
+                zip_file.writestr(final_name, content)
+                matched_files.append(final_name)
 
           zip_buffer.seek(0)
-
           st.success(
               f"Done! Found {len(matched_files)} matching pictures out of"
               f" {len(target_files)} targeted items."
@@ -97,16 +134,20 @@ if app_mode == "📂 Sort & Filter Photos (Excel Match)":
 elif app_mode == "✏️ Advanced Bulk Rename Photos":
   st.header("✏️ Advanced Bulk Rename Photo Files")
   st.write(
-      "Upload your photos, apply multiple rules (like replacing text or"
-      " removing last characters), and download them renamed!"
+      "Upload your photos (or a ZIP), apply rules, and download them renamed!"
   )
 
-  rename_images = st.file_uploader(
-      "Upload pictures to rename (multiple allowed)",
+  up_files = st.file_uploader(
+      "Upload individual pictures to rename:",
       type=["jpg", "jpeg", "png"],
       accept_multiple_files=True,
       key="rename_images",
   )
+  up_zip = st.file_uploader(
+      "OR Upload a ZIP file to rename:", type=["zip"], key="rename_zip"
+  )
+
+  rename_images = load_uploaded_images(up_files, up_zip)
 
   if rename_images:
     st.info(f"Loaded {len(rename_images)} images for renaming.")
@@ -136,17 +177,12 @@ elif app_mode == "✏️ Advanced Bulk Rename Photos":
       )
 
     st.markdown("---")
-    # Naya option: Remove last N characters from the file name
     remove_last_n = st.number_input(
         "Remove N characters from the END (Last characters):",
         min_value=0,
         max_value=50,
         value=0,
         step=1,
-        help=(
-            "Enter how many characters you want to cut off from the end of the"
-            " filename before the extension."
-        ),
     )
 
     st.markdown("---")
@@ -157,41 +193,41 @@ elif app_mode == "✏️ Advanced Bulk Rename Photos":
     if st.button("Process & Rename Files"):
       rename_zip_buffer = io.BytesIO()
       renamed_count = 0
+      seen_names = {}
 
       with zipfile.ZipFile(
           rename_zip_buffer, "w", zipfile.ZIP_DEFLATED
       ) as zip_file:
-        for img in rename_images:
-          original_name = img.name
+        for original_name, content in rename_images:
           name_part, ext = os.path.splitext(original_name)
 
-          # 1. Find and Replace
           if text_to_find:
             name_part = name_part.replace(text_to_find, text_replace)
-
-          # 2. Remove Prefix from start
           if remove_prefix and name_part.startswith(remove_prefix):
             name_part = name_part[len(remove_prefix) :]
-
-          # 3. Remove Suffix text from end
           if remove_suffix and name_part.endswith(remove_suffix):
             name_part = name_part[: -len(remove_suffix)]
-
-          # 4. Remove last N characters if specified
           if remove_last_n > 0:
             if len(name_part) > remove_last_n:
               name_part = name_part[:-remove_last_n]
             else:
-              name_part = ""  # Agar naam chhota hai toh blank ho jayega
+              name_part = ""
 
-          # 5. Change Case
           if case_option == "UPPERCASE":
             name_part = name_part.upper()
           elif case_option == "lowercase":
             name_part = name_part.lower()
 
           new_filename = name_part + ext
-          zip_file.writestr(new_filename, img.getvalue())
+
+          # Prevent duplicate filename overwrites inside ZIP
+          if new_filename in seen_names:
+            seen_names[new_filename] += 1
+            new_filename = f"{name_part}_{seen_names[new_filename]}{ext}"
+          else:
+            seen_names[new_filename] = 0
+
+          zip_file.writestr(new_filename, content)
           renamed_count += 1
 
       rename_zip_buffer.seek(0)
@@ -207,14 +243,13 @@ elif app_mode == "✏️ Advanced Bulk Rename Photos":
       )
 
 # ==========================================
-# MODE 3: ORGANIZE PHOTOS BY STYLE ID (NAYA OPTION)
+# MODE 3: ORGANIZE PHOTOS BY STYLE ID
 # ==========================================
 elif app_mode == "📁 Organize Photos by Style ID (New)":
   st.header("📁 Create Style ID Folders & Sort Images")
   st.write(
-      "Yeh option Excel ke Style ID column ke hisaab se folders banayega aur"
-      " duplicate images (jaise `(2)`, `(3)`) ko bhi sahi Style ID folder ke"
-      " andar daal dega."
+      "Upload Excel and images (or a ZIP folder) to sort them automatically"
+      " into Style ID folders, handling duplicates like `(2)`."
   )
 
   excel_file_3 = st.file_uploader(
@@ -239,12 +274,17 @@ elif app_mode == "📁 Organize Photos by Style ID (New)":
             key="img_ref_col",
         )
 
-      uploaded_imgs_3 = st.file_uploader(
-          "Upload all image files (with duplicates like name(2).jpg):",
+      up_files_3 = st.file_uploader(
+          "Upload individual image files:",
           type=["jpg", "jpeg", "png"],
           accept_multiple_files=True,
           key="style_images",
       )
+      up_zip_3 = st.file_uploader(
+          "OR Upload a ZIP file of images:", type=["zip"], key="style_zip"
+      )
+
+      uploaded_imgs_3 = load_uploaded_images(up_files_3, up_zip_3)
 
       if uploaded_imgs_3:
         st.info(f"Loaded {len(uploaded_imgs_3)} images.")
@@ -259,21 +299,30 @@ elif app_mode == "📁 Organize Photos by Style ID (New)":
 
             matched_count = 0
             zip_buffer_3 = io.BytesIO()
+            seen_in_folder = {}
 
             with zipfile.ZipFile(
                 zip_buffer_3, "w", zipfile.ZIP_DEFLATED
             ) as zip_file:
-              for img in uploaded_imgs_3:
-                orig_name = img.name
+              for orig_name, content in uploaded_imgs_3:
                 base_ext = os.path.splitext(orig_name)[0]
-
-                # Suffix hataane ke liye taaki M20126BEIGE(2) match ho sake M20126BEIGE se
                 clean_name = re.sub(r"\(\d+\)$", "", base_ext).strip().upper()
 
                 if clean_name in mapping:
                   style_folder = mapping[clean_name]
-                  zip_path = f"{style_folder}/{orig_name}"
-                  zip_file.writestr(zip_path, img.getvalue())
+
+                  # Handle duplicate names inside the same folder path
+                  final_name = orig_name
+                  folder_key = f"{style_folder}/{final_name}"
+                  if folder_key in seen_in_folder:
+                    seen_in_folder[folder_key] += 1
+                    n_part, ext = os.path.splitext(orig_name)
+                    final_name = f"{n_part}_{seen_in_folder[folder_key]}{ext}"
+                  else:
+                    seen_in_folder[folder_key] = 0
+
+                  zip_path = f"{style_folder}/{final_name}"
+                  zip_file.writestr(zip_path, content)
                   matched_count += 1
 
             zip_buffer_3.seek(0)
