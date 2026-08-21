@@ -23,7 +23,7 @@ app_mode = st.radio(
 st.markdown("---")
 
 # ==========================================
-# MODE 1: SORT & FILTER PHOTOS (PURANA OPTION 1)
+# MODE 1: SORT & FILTER PHOTOS
 # ==========================================
 if app_mode == "📂 Sort & Filter Photos (Excel Match)":
   st.header("1. Upload Excel File")
@@ -92,13 +92,13 @@ if app_mode == "📂 Sort & Filter Photos (Excel Match)":
       st.error(f"Error reading Excel file: {e}")
 
 # ==========================================
-# MODE 2: ADVANCED BULK RENAME PHOTOS (PURANA OPTION 2)
+# MODE 2: ADVANCED BULK RENAME PHOTOS
 # ==========================================
 elif app_mode == "✏️ Advanced Bulk Rename Photos":
   st.header("✏️ Advanced Bulk Rename Photo Files")
   st.write(
-      "Upload your photos, apply multiple rules (like replacing w26 with w25),"
-      " and download them renamed!"
+      "Upload your photos, apply multiple rules (like replacing text or"
+      " removing last characters), and download them renamed!"
   )
 
   rename_images = st.file_uploader(
@@ -132,8 +132,22 @@ elif app_mode == "✏️ Advanced Bulk Rename Photos":
       )
     with col4:
       remove_suffix = st.text_input(
-          "Remove from END (Suffix before extension):", placeholder="e.g. -Copy"
+          "Remove specific text from END:", placeholder="e.g. -Copy"
       )
+
+    st.markdown("---")
+    # Naya option: Remove last N characters from the file name
+    remove_last_n = st.number_input(
+        "Remove N characters from the END (Last characters):",
+        min_value=0,
+        max_value=50,
+        value=0,
+        step=1,
+        help=(
+            "Enter how many characters you want to cut off from the end of the"
+            " filename before the extension."
+        ),
+    )
 
     st.markdown("---")
     case_option = st.selectbox(
@@ -151,13 +165,26 @@ elif app_mode == "✏️ Advanced Bulk Rename Photos":
           original_name = img.name
           name_part, ext = os.path.splitext(original_name)
 
+          # 1. Find and Replace
           if text_to_find:
             name_part = name_part.replace(text_to_find, text_replace)
+
+          # 2. Remove Prefix from start
           if remove_prefix and name_part.startswith(remove_prefix):
             name_part = name_part[len(remove_prefix) :]
+
+          # 3. Remove Suffix text from end
           if remove_suffix and name_part.endswith(remove_suffix):
             name_part = name_part[: -len(remove_suffix)]
 
+          # 4. Remove last N characters if specified
+          if remove_last_n > 0:
+            if len(name_part) > remove_last_n:
+              name_part = name_part[:-remove_last_n]
+            else:
+              name_part = ""  # Agar naam chhota hai toh blank ho jayega
+
+          # 5. Change Case
           if case_option == "UPPERCASE":
             name_part = name_part.upper()
           elif case_option == "lowercase":
