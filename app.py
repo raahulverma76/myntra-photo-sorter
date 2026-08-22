@@ -5,7 +5,6 @@ import zipfile
 import pandas as pd
 import openpyxl
 from openpyxl.drawing.image import Image as OpenpyxlImage
-from openpyxl.styles import Alignment, Border, Side, Font, PatternFill
 import streamlit as st
 
 st.set_page_config(page_title="Photo Manager", layout="centered")
@@ -28,7 +27,7 @@ app_mode = st.radio(
 st.markdown("---")
 
 
-# Helper function to extract images from either single files or a ZIP upload
+# Helper function to load images
 def load_uploaded_images(uploaded_files, uploaded_zip):
     image_list = []
 
@@ -245,12 +244,12 @@ elif app_mode == "✏️ Advanced Bulk Rename Photos":
             )
 
 # ==========================================
-# MODE 3: ORGANIZE PHOTOS BY STYLE ID
+# MODE 3: ORGANIZE PHOTOS BY STYLE ID (UPDATED)
 # ==========================================
 elif app_mode == "📁 Organize Photos by Style ID":
-    st.header("📁 Create Style ID Folders & Sort Images")
+    st.header("📁 Create Style ID Folders & Rename Images by Style ID")
     st.write(
-        "Match images with Excel rows based on Style ID, automatically ignoring suffixes such as underscores or bracketed indices."
+        "Matches images, sorts them into folders named after the Style ID, and automatically renames each photo to match its Style ID."
     )
 
     excel_file_3 = st.file_uploader(
@@ -290,8 +289,8 @@ elif app_mode == "📁 Organize Photos by Style ID":
             if uploaded_imgs_3:
                 st.info(f"Loaded {len(uploaded_imgs_3)} images.")
 
-                if st.button("Generate Style Folders & Zip"):
-                    with st.spinner("Organizing into Style ID folders..."):
+                if st.button("Generate Style Folders & Rename Photos"):
+                    with st.spinner("Organizing and renaming photos by Style ID..."):
                         mapping = {}
                         for _, row in df_style.iterrows():
                             s_id = str(row[style_col]).strip()
@@ -303,12 +302,13 @@ elif app_mode == "📁 Organize Photos by Style ID":
 
                         matched_count = 0
                         zip_buffer_3 = io.BytesIO()
-                        seen_in_folder = {}
+                        folder_name_counters = {}
 
                         with zipfile.ZipFile(
                             zip_buffer_3, "w", zipfile.ZIP_DEFLATED
                         ) as zip_file:
                             for orig_name, content in uploaded_imgs_3:
+                                _, ext = os.path.splitext(orig_name)
                                 base_ext = os.path.splitext(orig_name)[0]
 
                                 clean_name = re.sub(r"\(\d+\)$", "", base_ext).strip()
@@ -319,28 +319,28 @@ elif app_mode == "📁 Organize Photos by Style ID":
                                 if clean_name in mapping:
                                     style_folder = mapping[clean_name]
 
-                                    final_name = orig_name
-                                    folder_key = f"{style_folder}/{final_name}"
-                                    if folder_key in seen_in_folder:
-                                        seen_in_folder[folder_key] += 1
-                                        n_part, ext = os.path.splitext(orig_name)
-                                        final_name = f"{n_part}_{seen_in_folder[folder_key]}{ext}"
+                                    # Rename photo file to match Style ID
+                                    if style_folder not in folder_name_counters:
+                                        folder_name_counters[style_folder] = 0
+                                        final_file_name = f"{style_folder}{ext}"
                                     else:
-                                        seen_in_folder[folder_key] = 0
+                                        folder_name_counters[style_folder] += 1
+                                        count_val = folder_name_counters[style_folder]
+                                        final_file_name = f"{style_folder}_{count_val}{ext}"
 
-                                    zip_path = f"{style_folder}/{final_name}"
+                                    zip_path = f"{style_folder}/{final_file_name}"
                                     zip_file.writestr(zip_path, content)
                                     matched_count += 1
 
                         zip_buffer_3.seek(0)
                         st.success(
-                            f"Successfully sorted {matched_count} images into Style ID folders."
+                            f"Successfully sorted and renamed {matched_count} images into Style ID folders."
                         )
 
                         st.download_button(
                             label="📥 Download Style Folders (ZIP)",
                             data=zip_buffer_3,
-                            file_name="Style_ID_Folders.zip",
+                            file_name="Style_ID_Folders_Renamed.zip",
                             mime="application/zip",
                         )
 
