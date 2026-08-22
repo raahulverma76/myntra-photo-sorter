@@ -12,7 +12,7 @@ st.set_page_config(page_title="Photo Manager", layout="centered")
 
 st.title("👕 Photo Manager Web App")
 
-# Main Screen Options (Radio buttons for 4 features)
+# Main Screen Options (Radio buttons for 5 features)
 app_mode = st.radio(
     "Choose Mode:",
     [
@@ -20,6 +20,7 @@ app_mode = st.radio(
         "✏️ Advanced Bulk Rename Photos",
         "📁 Organize Photos by Style ID (New)",
         "📊 Insert Images into Excel (Auto)",
+        "🔄 Transfer Photos Between Excel Files (New)",
     ],
     horizontal=True,
 )
@@ -348,12 +349,12 @@ elif app_mode == "📁 Organize Photos by Style ID (New)":
             st.error(f"Error: {e}")
 
 # ==========================================
-# MODE 4: INSERT IMAGES INTO EXCEL AUTOMATICALLY (NEW)
+# MODE 4: INSERT IMAGES INTO EXCEL AUTOMATICALLY
 # ==========================================
 elif app_mode == "📊 Insert Images into Excel (Auto)":
     st.header("📊 Insert Photos Automatically into Excel")
     st.write(
-        "Yahan aap apni Excel aur Photos (ya ZIP) upload karein. App automatically Style Name match karke photo ko Excel ke cell mein insert kar dega."
+        "Yahan apni Excel aur Photos upload karein. Photo ka size exact **Height: 3.16 inch, Width: 2.07 inch** set kiya jayega."
     )
 
     excel_file_4 = st.file_uploader(
@@ -367,12 +368,12 @@ elif app_mode == "📊 Insert Images into Excel (Auto)":
 
             cols_list = df_insert.columns.tolist()
             match_col = st.selectbox(
-                "Select Style Name Column (jisse photo ka naam match hoga):",
+                "Select Style Name Column (jisse photo naam match hoga):",
                 cols_list,
                 key="match_col_name",
             )
             photo_col = st.selectbox(
-                "Select Photo Column (jahan photo lagani hai, e.g. PHOTO):",
+                "Select Photo Column (jahan photo lagani hai):",
                 cols_list,
                 key="photo_col_name",
             )
@@ -394,7 +395,6 @@ elif app_mode == "📊 Insert Images into Excel (Auto)":
 
                 if st.button("Generate Excel with Photos"):
                     with st.spinner("Inserting photos into Excel..."):
-                        # Create a temp file to save and process with openpyxl
                         temp_excel_path = "temp_excel.xlsx"
                         excel_file_4.seek(0)
                         with open(temp_excel_path, "wb") as f:
@@ -403,12 +403,10 @@ elif app_mode == "📊 Insert Images into Excel (Auto)":
                         wb = openpyxl.load_workbook(temp_excel_path)
                         ws = wb.active
 
-                        # Map header names to column indices (1-based)
                         headers = [cell.value for cell in ws[1]]
                         match_col_idx = headers.index(match_col) + 1
                         photo_col_idx = headers.index(photo_col) + 1
 
-                        # Index images by filename (without extension)
                         img_dict = {}
                         for fname, content in uploaded_imgs_4:
                             b_name, _ = os.path.splitext(fname)
@@ -416,9 +414,16 @@ elif app_mode == "📊 Insert Images into Excel (Auto)":
 
                         inserted_count = 0
 
-                        # Iterate through rows
+                        # Set cell sizes for exact fit: 3.16 inches height, 2.07 inches width
+                        # 1 inch = 72 points roughly for height, width is characters width approx.
+                        target_height_pts = 3.16 * 72
+                        target_width_chars = 2.07 * 8  # approximate conversion for excel column width
+
+                        photo_col_letter = openpyxl.utils.get_column_letter(photo_col_idx)
+                        ws.column_dimensions[photo_col_letter].width = 25  # Fits 2.07 inches well
+
                         for row in range(2, ws.max_row + 1):
-                            ws.row_dimensions[row].height = 75  # Set row height for photo
+                            ws.row_dimensions[row].height = 230  # Fits 3.16 inches height safely
                             cell_val = ws.cell(row=row, column=match_col_idx).value
 
                             if cell_val is not None:
@@ -428,16 +433,12 @@ elif app_mode == "📊 Insert Images into Excel (Auto)":
                                     img_io = io.BytesIO(img_bytes)
 
                                     img = OpenpyxlImage(img_io)
-                                    img.width = 70
-                                    img.height = 70
+                                    # Set image exact dimensions in pixels (approx 1 inch = 96 pixels for screen/images)
+                                    img.height = int(3.16 * 96)
+                                    img.width = int(2.07 * 96)
 
-                                    col_letter = openpyxl.utils.get_column_letter(photo_col_idx)
-                                    ws.add_image(img, f"{col_letter}{row}")
+                                    ws.add_image(img, f"{photo_col_letter}{row}")
                                     inserted_count += 1
-
-                        # Set column width for photo column
-                        photo_col_letter = openpyxl.utils.get_column_letter(photo_col_idx)
-                        ws.column_dimensions[photo_col_letter].width = 15
 
                         output_excel_buffer = io.BytesIO()
                         wb.save(output_excel_buffer)
@@ -448,7 +449,7 @@ elif app_mode == "📊 Insert Images into Excel (Auto)":
                         st.download_button(
                             label="📥 Download Excel with Photos (.xlsx)",
                             data=output_excel_buffer,
-                            file_name="Catalog_With_Embedded_Photos.xlsx",
+                            file_name="Catalog_With_Exact_Size_Photos.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         )
 
@@ -457,3 +458,100 @@ elif app_mode == "📊 Insert Images into Excel (Auto)":
 
         except Exception as e:
             st.error(f"Error: {e}")
+
+# ==========================================
+# MODE 5: TRANSFER PHOTOS BETWEEN EXCEL FILES (NEW)
+# ==========================================
+elif app_mode == "🔄 Transfer Photos Between Excel Files (New)":
+    st.header("🔄 Transfer Photos from One Excel to Another")
+    st.write(
+        "Aapke paas do Excel files hain—ek jisme photos embedded hain, aur doosri jisme data hai. Ye tool common field/column name ke zariye photos ko doosri Excel mein transfer kar dega!"
+    )
+
+    source_excel = st.file_uploader(
+        "1. Upload SOURCE Excel (Jisme photos already hain):", type=["xlsx"], key="src_excel"
+    )
+    target_excel = st.file_uploader(
+        "2. Upload TARGET Excel (Jisme photos daalni hain):", type=["xlsx"], key="tgt_excel"
+    )
+
+    if source_excel and target_excel:
+        try:
+            # Load both workbooks
+            wb_src = openpyxl.load_workbook(source_excel)
+            ws_src = wb_src.active
+
+            wb_tgt = openpyxl.load_workbook(target_excel)
+            ws_tgt = wb_tgt.active
+
+            src_headers = [cell.value for cell in ws_src[1]]
+            tgt_headers = [cell.value for cell in ws_tgt[1]]
+
+            st.success("Both Excel files loaded successfully!")
+
+            c1, c2 = st.columns(2)
+            with c1:
+                src_match_col = st.selectbox("Source Style/Name Column:", src_headers, key="s_match")
+                src_photo_col = st.selectbox("Source Photo Column (Jahan photos hain):", src_headers, key="s_photo")
+            with c2:
+                tgt_match_col = st.selectbox("Target Style/Name Column:", tgt_headers, key="t_match")
+                tgt_photo_col = st.selectbox("Target Photo Column (Jahan photos lagani hain):", tgt_headers, key="t_photo")
+
+            if st.button("Transfer Photos Now"):
+                with st.spinner("Transferring photos between Excel files..."):
+                    src_m_idx = src_headers.index(src_match_col) + 1
+                    src_p_idx = src_headers.index(src_photo_col) + 1
+                    
+                    tgt_m_idx = tgt_headers.index(tgt_match_col) + 1
+                    tgt_p_idx = tgt_headers.index(tgt_photo_col) + 1
+
+                    # Extract images from source workbook mapped by row/name
+                    # openpyxl stores images with their anchor cell information
+                    transferred_count = 0
+                    
+                    # Create a dictionary mapping style name from source to image object/stream
+                    src_images_map = {}
+                    for img in ws_src._images:
+                        # Find which row the image belongs to
+                        row_idx = img.anchor._from.row + 1 # openpyxl 0-indexed row to 1-indexed
+                        val = ws_src.cell(row=row_idx, column=src_m_idx).value
+                        if val is not None:
+                            src_images_map[str(val).strip().upper()] = img
+
+                    # Set column width and row height in target workbook
+                    tgt_photo_letter = openpyxl.utils.get_column_letter(tgt_p_idx)
+                    ws_tgt.column_dimensions[tgt_photo_letter].width = 25
+
+                    for row in range(2, ws_tgt.max_row + 1):
+                        ws_tgt.row_dimensions[row].height = 230
+                        tgt_val = ws_tgt.cell(row=row, column=tgt_m_idx).value
+                        
+                        if tgt_val is not None:
+                            key_str = str(tgt_val).strip().upper()
+                            if key_str in src_images_map:
+                                original_img = src_images_map[key_str]
+                                
+                                # Duplicate/re-create image for target
+                                img_io = io.BytesIO(original_img._data())
+                                new_img = OpenpyxlImage(img_io)
+                                new_img.height = int(3.16 * 96)
+                                new_img.width = int(2.07 * 96)
+
+                                ws_tgt.add_image(new_img, f"{tgt_photo_letter}{row}")
+                                transferred_count += 1
+
+                    output_buffer = io.BytesIO()
+                    wb_tgt.save(output_buffer)
+                    output_buffer.seek(0)
+
+                    st.success(f"Successfully transferred {transferred_count} photos from Source to Target Excel!")
+
+                    st.download_button(
+                        label="📥 Download Transferred Excel File",
+                        data=output_buffer,
+                        file_name="Target_Catalog_With_Transferred_Photos.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+
+        except Exception as e:
+            st.error(f"Error during photo transfer: {e}")
