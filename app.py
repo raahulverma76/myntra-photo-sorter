@@ -1,3 +1,4 @@
+
 # import io
 # import os
 # import re
@@ -20,6 +21,7 @@
 #         "📁 Organize Photos by Style ID",
 #         "📊 Insert Images into Excel (Auto)",
 #         "🔄 Transfer Photos Between Excel Files",
+#         "📁 Flatten & Rename Nested Images",
 #     ],
 #     horizontal=True,
 # )
@@ -42,7 +44,7 @@
 #                     if filename.lower().endswith((".jpg", ".jpeg", ".png")) and not filename.startswith("__MACOSX/"):
 #                         base_name = os.path.basename(filename)
 #                         if base_name:
-#                             image_list.append((base_name, z.read(filename)))
+#                             image_list.append((filename, z.read(filename)))
 #         except Exception as e:
 #             st.error(f"Error reading ZIP file: {e}")
 
@@ -102,12 +104,13 @@
 #                         zip_buffer, "w", zipfile.ZIP_DEFLATED
 #                     ) as zip_file:
 #                         for name, content in all_imgs:
-#                             if name in target_files:
-#                                 final_name = name
+#                             base_name = os.path.basename(name)
+#                             if base_name in target_files:
+#                                 final_name = base_name
 #                                 if final_name in seen_names:
 #                                     seen_names[final_name] += 1
-#                                     name_part, ext = os.path.splitext(name)
-#                                     final_name = f"{name_part}_{seen_names[name]}{ext}"
+#                                     name_part, ext = os.path.splitext(base_name)
+#                                     final_name = f"{name_part}_{seen_names[base_name]}{ext}"
 #                                 else:
 #                                     seen_names[final_name] = 0
 
@@ -200,7 +203,8 @@
 #             with zipfile.ZipFile(
 #                 rename_zip_buffer, "w", zipfile.ZIP_DEFLATED
 #             ) as zip_file:
-#                 for original_name, content in rename_images:
+#                 for original_path, content in rename_images:
+#                     original_name = os.path.basename(original_path)
 #                     name_part, ext = os.path.splitext(original_name)
 
 #                     if text_to_find:
@@ -244,7 +248,7 @@
 #             )
 
 # # ==========================================
-# # MODE 3: ORGANIZE PHOTOS BY STYLE ID (UPDATED)
+# # MODE 3: ORGANIZE PHOTOS BY STYLE ID
 # # ==========================================
 # elif app_mode == "📁 Organize Photos by Style ID":
 #     st.header("📁 Create Style ID Folders & Rename Images by Style ID")
@@ -307,7 +311,8 @@
 #                         with zipfile.ZipFile(
 #                             zip_buffer_3, "w", zipfile.ZIP_DEFLATED
 #                         ) as zip_file:
-#                             for orig_name, content in uploaded_imgs_3:
+#                             for orig_path, content in uploaded_imgs_3:
+#                                 orig_name = os.path.basename(orig_path)
 #                                 _, ext = os.path.splitext(orig_name)
 #                                 base_ext = os.path.splitext(orig_name)[0]
 
@@ -319,7 +324,6 @@
 #                                 if clean_name in mapping:
 #                                     style_folder = mapping[clean_name]
 
-#                                     # Rename photo file to match Style ID
 #                                     if style_folder not in folder_name_counters:
 #                                         folder_name_counters[style_folder] = 0
 #                                         final_file_name = f"{style_folder}{ext}"
@@ -408,8 +412,9 @@
 
 #                         img_dict = {}
 #                         for fname, content in uploaded_imgs_4:
-#                             b_name, _ = os.path.splitext(fname)
-#                             img_dict[b_name.strip().upper()] = content
+#                             b_name = os.path.basename(fname)
+#                             name_only, _ = os.path.splitext(b_name)
+#                             img_dict[name_only.strip().upper()] = content
 
 #                         inserted_count = 0
 
@@ -541,6 +546,64 @@
 
 #         except Exception as e:
 #             st.error(f"Error during photo transfer: {e}")
+
+# # ==========================================
+# # MODE 6: FLATTEN & RENAME NESTED IMAGES
+# # ==========================================
+# elif app_mode == "📁 Flatten & Rename Nested Images":
+#     st.header("📁 Flatten & Rename Nested Subfolder Images")
+#     st.write(
+#         "Upload a ZIP file containing root folders (e.g., style name folders) that have inner subfolders with random image names. "
+#         "This tool extracts all images to a single level and renames each image using its **Main Root Folder name**."
+#     )
+
+#     nested_zip = st.file_uploader(
+#         "Upload ZIP containing nested folders and images:", type=["zip"], key="nested_zip_upload"
+#     )
+
+#     if nested_zip:
+#         if st.button("Process & Flatten Folders"):
+#             with st.spinner("Extracting, flattening, and renaming images..."):
+#                 extracted_buffer = io.BytesIO()
+#                 processed_count = 0
+#                 folder_name_counters = {}
+
+#                 try:
+#                     with zipfile.ZipFile(nested_zip, "r") as z:
+#                         with zipfile.ZipFile(extracted_buffer, "w", zipfile.ZIP_DEFLATED) as out_zip:
+#                             for filename in z.namelist():
+#                                 if filename.lower().endswith((".jpg", ".jpeg", ".png")) and not filename.startswith("__MACOSX/"):
+#                                     parts = filename.split("/")
+                                    
+#                                     # Ensure it has at least RootFolder -> Subfolder -> Image structure
+#                                     if len(parts) >= 2:
+#                                         root_folder = parts[0]
+#                                         _, ext = os.path.splitext(filename)
+                                        
+#                                         # Handle numbering if multiple images exist under the same root folder
+#                                         if root_folder not in folder_name_counters:
+#                                             folder_name_counters[root_folder] = 0
+#                                             new_file_name = f"{root_folder}{ext}"
+#                                         else:
+#                                             folder_name_counters[root_folder] += 1
+#                                             count_val = folder_name_counters[root_folder]
+#                                             new_file_name = f"{root_folder}_{count_val}{ext}"
+                                        
+#                                         image_bytes = z.read(filename)
+#                                         out_zip.writestr(new_file_name, image_bytes)
+#                                         processed_count += 1
+
+#                     extracted_buffer.seek(0)
+#                     st.success(f"Successfully processed and renamed {processed_count} images!")
+
+#                     st.download_button(
+#                         label="📥 Download Flattened & Renamed Photos (ZIP)",
+#                         data=extracted_buffer,
+#                         file_name="Flattened_Renamed_Photos.zip",
+#                         mime="application/zip",
+#                     )
+#                 except Exception as e:
+#                     st.error(f"Error processing nested zip file: {e}")
 import io
 import os
 import re
@@ -551,6 +614,18 @@ from openpyxl.drawing.image import Image as OpenpyxlImage
 import streamlit as st
 
 st.set_page_config(page_title="Photo Manager", layout="centered")
+
+# Configure Streamlit to handle large file uploads programmatically
+st.markdown(
+    """
+    <style>
+        .stFileUploader section {
+            padding: 10px;
+        }
+    </style>
+""",
+    unsafe_allow_html=True,
+)
 
 st.title("👕 Photo Manager Web App")
 
@@ -1090,7 +1165,7 @@ elif app_mode == "🔄 Transfer Photos Between Excel Files":
             st.error(f"Error during photo transfer: {e}")
 
 # ==========================================
-# MODE 6: FLATTEN & RENAME NESTED IMAGES
+# MODE 6: FLATTEN & RENAME NESTED IMAGES (UNLIMITED SIZE)
 # ==========================================
 elif app_mode == "📁 Flatten & Rename Nested Images":
     st.header("📁 Flatten & Rename Nested Subfolder Images")
@@ -1100,12 +1175,14 @@ elif app_mode == "📁 Flatten & Rename Nested Images":
     )
 
     nested_zip = st.file_uploader(
-        "Upload ZIP containing nested folders and images:", type=["zip"], key="nested_zip_upload"
+        "Upload ZIP containing nested folders and images (No size limit):", 
+        type=["zip"], 
+        key="nested_zip_upload"
     )
 
     if nested_zip:
         if st.button("Process & Flatten Folders"):
-            with st.spinner("Extracting, flattening, and renaming images..."):
+            with st.spinner("Extracting, flattening, and renaming images from all nested folders..."):
                 extracted_buffer = io.BytesIO()
                 processed_count = 0
                 folder_name_counters = {}
@@ -1114,15 +1191,15 @@ elif app_mode == "📁 Flatten & Rename Nested Images":
                     with zipfile.ZipFile(nested_zip, "r") as z:
                         with zipfile.ZipFile(extracted_buffer, "w", zipfile.ZIP_DEFLATED) as out_zip:
                             for filename in z.namelist():
-                                if filename.lower().endswith((".jpg", ".jpeg", ".png")) and not filename.startswith("__MACOSX/"):
+                                if filename.lower().endswith((".jpg", ".jpeg", ".png")) and not filename.startswith("__MACOSX/") and "Thumbs.db" not in filename:
                                     parts = filename.split("/")
                                     
-                                    # Ensure it has at least RootFolder -> Subfolder -> Image structure
+                                    # Handle standard root/subfolder/file structures
                                     if len(parts) >= 2:
                                         root_folder = parts[0]
                                         _, ext = os.path.splitext(filename)
                                         
-                                        # Handle numbering if multiple images exist under the same root folder
+                                        # Numbering logic if multiple images share the same root folder name
                                         if root_folder not in folder_name_counters:
                                             folder_name_counters[root_folder] = 0
                                             new_file_name = f"{root_folder}{ext}"
@@ -1136,7 +1213,7 @@ elif app_mode == "📁 Flatten & Rename Nested Images":
                                         processed_count += 1
 
                     extracted_buffer.seek(0)
-                    st.success(f"Successfully processed and renamed {processed_count} images!")
+                    st.success(f"Successfully processed, flattened, and renamed {processed_count} images!")
 
                     st.download_button(
                         label="📥 Download Flattened & Renamed Photos (ZIP)",
