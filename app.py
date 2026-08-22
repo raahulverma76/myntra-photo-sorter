@@ -3,19 +3,23 @@ import os
 import re
 import zipfile
 import pandas as pd
+import openpyxl
+from openpyxl.drawing.image import Image as OpenpyxlImage
+from openpyxl.styles import Alignment, Border, Side, Font, PatternFill
 import streamlit as st
 
 st.set_page_config(page_title="Photo Manager", layout="centered")
 
 st.title("👕 Photo Manager Web App")
 
-# Main Screen Options (Radio buttons for 3 features)
+# Main Screen Options (Radio buttons for 4 features)
 app_mode = st.radio(
     "Choose Mode:",
     [
         "📂 Sort & Filter Photos (Excel Match)",
         "✏️ Advanced Bulk Rename Photos",
         "📁 Organize Photos by Style ID (New)",
+        "📊 Insert Images into Excel (Auto)",
     ],
     horizontal=True,
 )
@@ -25,324 +29,431 @@ st.markdown("---")
 
 # Helper function to extract images from either single files or a ZIP upload
 def load_uploaded_images(uploaded_files, uploaded_zip):
-  image_list = []
+    image_list = []
 
-  if uploaded_files:
-    for f in uploaded_files:
-      image_list.append((f.name, f.getvalue()))
+    if uploaded_files:
+        for f in uploaded_files:
+            image_list.append((f.name, f.getvalue()))
 
-  if uploaded_zip:
-    try:
-      with zipfile.ZipFile(uploaded_zip, "r") as z:
-        for filename in z.namelist():
-          if filename.lower().endswith((".jpg", ".jpeg", ".png")) and not filename.startswith("__MACOSX/"):
-            base_name = os.path.basename(filename)
-            if base_name:
-              image_list.append((base_name, z.read(filename)))
-    except Exception as e:
-      st.error(f"Error reading ZIP file: {e}")
+    if uploaded_zip:
+        try:
+            with zipfile.ZipFile(uploaded_zip, "r") as z:
+                for filename in z.namelist():
+                    if filename.lower().endswith((".jpg", ".jpeg", ".png")) and not filename.startswith("__MACOSX/"):
+                        base_name = os.path.basename(filename)
+                        if base_name:
+                            image_list.append((base_name, z.read(filename)))
+        except Exception as e:
+            st.error(f"Error reading ZIP file: {e}")
 
-  return image_list
+    return image_list
 
 
 # ==========================================
 # MODE 1: SORT & FILTER PHOTOS
 # ==========================================
 if app_mode == "📂 Sort & Filter Photos (Excel Match)":
-  st.header("1. Upload Excel File")
-  excel_file = st.file_uploader(
-      "Choose an Excel file (.xlsx)", type=["xlsx"], key="sort_excel"
-  )
+    st.header("1. Upload Excel File")
+    excel_file = st.file_uploader(
+        "Choose an Excel file (.xlsx)", type=["xlsx"], key="sort_excel"
+    )
 
-  if excel_file:
-    try:
-      df = pd.read_excel(excel_file)
-      st.success("Excel file successfully loaded!")
+    if excel_file:
+        try:
+            df = pd.read_excel(excel_file)
+            st.success("Excel file successfully loaded!")
 
-      st.header("2. Choose Column with Filenames")
-      column_name = st.selectbox(
-          "Select the column that contains the picture names:",
-          df.columns,
-          key="sort_col",
-      )
+            st.header("2. Choose Column with Filenames")
+            column_name = st.selectbox(
+                "Select the column that contains the picture names:",
+                df.columns,
+                key="sort_col",
+            )
 
-      target_files = (
-          df[column_name].dropna().astype(str).str.strip().tolist()
-      )
-      st.info(f"Found {len(target_files)} filenames listed in that column.")
+            target_files = (
+                df[column_name].dropna().astype(str).str.strip().tolist()
+            )
+            st.info(f"Found {len(target_files)} filenames listed in that column.")
 
-      st.header("3. Upload Pictures (Multiple Files OR ZIP)")
-      up_files = st.file_uploader(
-          "Upload individual pictures:",
-          type=["jpg", "jpeg", "png"],
-          accept_multiple_files=True,
-          key="sort_images",
-      )
-      up_zip = st.file_uploader(
-          "OR Upload a ZIP file containing pictures:",
-          type=["zip"],
-          key="sort_zip",
-      )
+            st.header("3. Upload Pictures (Multiple Files OR ZIP)")
+            up_files = st.file_uploader(
+                "Upload individual pictures:",
+                type=["jpg", "jpeg", "png"],
+                accept_multiple_files=True,
+                key="sort_images",
+            )
+            up_zip = st.file_uploader(
+                "OR Upload a ZIP file containing pictures:",
+                type=["zip"],
+                key="sort_zip",
+            )
 
-      all_imgs = load_uploaded_images(up_files, up_zip)
+            all_imgs = load_uploaded_images(up_files, up_zip)
 
-      if all_imgs:
-        st.info(f"Loaded {len(all_imgs)} total images to process.")
+            if all_imgs:
+                st.info(f"Loaded {len(all_imgs)} total images to process.")
 
-        if st.button("Match and Separate Images"):
-          matched_files = []
-          zip_buffer = io.BytesIO()
-          seen_names = {}
+                if st.button("Match and Separate Images"):
+                    matched_files = []
+                    zip_buffer = io.BytesIO()
+                    seen_names = {}
 
-          with zipfile.ZipFile(
-              zip_buffer, "w", zipfile.ZIP_DEFLATED
-          ) as zip_file:
-            for name, content in all_imgs:
-              if name in target_files:
-                final_name = name
-                if final_name in seen_names:
-                  seen_names[final_name] += 1
-                  name_part, ext = os.path.splitext(name)
-                  final_name = f"{name_part}_{seen_names[name]}{ext}"
-                else:
-                  seen_names[final_name] = 0
+                    with zipfile.ZipFile(
+                        zip_buffer, "w", zipfile.ZIP_DEFLATED
+                    ) as zip_file:
+                        for name, content in all_imgs:
+                            if name in target_files:
+                                final_name = name
+                                if final_name in seen_names:
+                                    seen_names[final_name] += 1
+                                    name_part, ext = os.path.splitext(name)
+                                    final_name = f"{name_part}_{seen_names[name]}{ext}"
+                                else:
+                                    seen_names[final_name] = 0
 
-                zip_file.writestr(final_name, content)
-                matched_files.append(final_name)
+                                zip_file.writestr(final_name, content)
+                                matched_files.append(final_name)
 
-          zip_buffer.seek(0)
-          st.success(
-              f"Done! Found {len(matched_files)} matching pictures out of"
-              f" {len(target_files)} targeted items."
-          )
+                    zip_buffer.seek(0)
+                    st.success(
+                        f"Done! Found {len(matched_files)} matching pictures out of"
+                        f" {len(target_files)} targeted items."
+                    )
 
-          st.download_button(
-              label="📥 Download Separated Pictures (ZIP)",
-              data=zip_buffer,
-              file_name="matched_myntra_photos.zip",
-              mime="application/zip",
-          )
+                    st.download_button(
+                        label="📥 Download Separated Pictures (ZIP)",
+                        data=zip_buffer,
+                        file_name="matched_myntra_photos.zip",
+                        mime="application/zip",
+                    )
 
-    except Exception as e:
-      st.error(f"Error reading Excel file: {e}")
+        except Exception as e:
+            st.error(f"Error reading Excel file: {e}")
 
 # ==========================================
 # MODE 2: ADVANCED BULK RENAME PHOTOS
 # ==========================================
 elif app_mode == "✏️ Advanced Bulk Rename Photos":
-  st.header("✏️ Advanced Bulk Rename Photo Files")
-  st.write(
-      "Upload your photos (or a ZIP), apply rules, and download them renamed!"
-  )
-
-  up_files = st.file_uploader(
-      "Upload individual pictures to rename:",
-      type=["jpg", "jpeg", "png"],
-      accept_multiple_files=True,
-      key="rename_images",
-  )
-  up_zip = st.file_uploader(
-      "OR Upload a ZIP file to rename:", type=["zip"], key="rename_zip"
-  )
-
-  rename_images = load_uploaded_images(up_files, up_zip)
-
-  if rename_images:
-    st.info(f"Loaded {len(rename_images)} images for renaming.")
-
-    st.markdown("### Renaming Rules")
-    col1, col2 = st.columns(2)
-
-    with col1:
-      text_to_find = st.text_input(
-          "Find text (e.g. w26):", placeholder="Text you want to change"
-      )
-    with col2:
-      text_replace = st.text_input(
-          "Replace with (e.g. w25):",
-          placeholder="New text (leave blank to delete)",
-      )
-
-    st.markdown("---")
-    col3, col4 = st.columns(2)
-    with col3:
-      remove_prefix = st.text_input(
-          "Remove from START (Prefix):", placeholder="e.g. ABC-"
-      )
-    with col4:
-      remove_suffix = st.text_input(
-          "Remove specific text from END:", placeholder="e.g. -Copy"
-      )
-
-    st.markdown("---")
-    remove_last_n = st.number_input(
-        "Remove N characters from the END (Last characters):",
-        min_value=0,
-        max_value=50,
-        value=0,
-        step=1,
+    st.header("✏️ Advanced Bulk Rename Photo Files")
+    st.write(
+        "Upload your photos (or a ZIP), apply rules, and download them renamed!"
     )
 
-    st.markdown("---")
-    case_option = st.selectbox(
-        "Change Text Case (Optional):", ["None", "UPPERCASE", "lowercase"]
+    up_files = st.file_uploader(
+        "Upload individual pictures to rename:",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=True,
+        key="rename_images",
+    )
+    up_zip = st.file_uploader(
+        "OR Upload a ZIP file to rename:", type=["zip"], key="rename_zip"
     )
 
-    if st.button("Process & Rename Files"):
-      rename_zip_buffer = io.BytesIO()
-      renamed_count = 0
-      seen_names = {}
+    rename_images = load_uploaded_images(up_files, up_zip)
 
-      with zipfile.ZipFile(
-          rename_zip_buffer, "w", zipfile.ZIP_DEFLATED
-      ) as zip_file:
-        for original_name, content in rename_images:
-          name_part, ext = os.path.splitext(original_name)
+    if rename_images:
+        st.info(f"Loaded {len(rename_images)} images for renaming.")
 
-          if text_to_find:
-            name_part = name_part.replace(text_to_find, text_replace)
-          if remove_prefix and name_part.startswith(remove_prefix):
-            name_part = name_part[len(remove_prefix) :]
-          if remove_suffix and name_part.endswith(remove_suffix):
-            name_part = name_part[: -len(remove_suffix)]
-          if remove_last_n > 0:
-            if len(name_part) > remove_last_n:
-              name_part = name_part[:-remove_last_n]
-            else:
-              name_part = ""
+        st.markdown("### Renaming Rules")
+        col1, col2 = st.columns(2)
 
-          if case_option == "UPPERCASE":
-            name_part = name_part.upper()
-          elif case_option == "lowercase":
-            name_part = name_part.lower()
+        with col1:
+            text_to_find = st.text_input(
+                "Find text (e.g. w26):", placeholder="Text you want to change"
+            )
+        with col2:
+            text_replace = st.text_input(
+                "Replace with (e.g. w25):",
+                placeholder="New text (leave blank to delete)",
+            )
 
-          new_filename = name_part + ext
+        st.markdown("---")
+        col3, col4 = st.columns(2)
+        with col3:
+            remove_prefix = st.text_input(
+                "Remove from START (Prefix):", placeholder="e.g. ABC-"
+            )
+        with col4:
+            remove_suffix = st.text_input(
+                "Remove specific text from END:", placeholder="e.g. -Copy"
+            )
 
-          if new_filename in seen_names:
-            seen_names[new_filename] += 1
-            new_filename = f"{name_part}_{seen_names[new_filename]}{ext}"
-          else:
-            seen_names[new_filename] = 0
-
-          zip_file.writestr(new_filename, content)
-          renamed_count += 1
-
-      rename_zip_buffer.seek(0)
-      st.success(
-          f"Successfully renamed {renamed_count} files! Click below to download."
-      )
-
-      st.download_button(
-          label="📥 Download Renamed Pictures (ZIP)",
-          data=rename_zip_buffer,
-          file_name="renamed_myntra_photos.zip",
-          mime="application/zip",
-      )
-
-# ==========================================
-# MODE 3: ORGANIZE PHOTOS BY STYLE ID (UPDATED)
-# ==========================================
-elif app_mode == "📁 Organize Photos by Style ID (New)":
-  st.header("📁 Create Style ID Folders & Sort Images")
-  st.write(
-      "Yeh option Excel aur images ko match karega, aur underscore `_` ya"
-      " brackets `(2)` ke baad ke hisse ko ignore karke sahi folder mein dal"
-      " dega."
-  )
-
-  excel_file_3 = st.file_uploader(
-      "Choose Excel file (.xlsx)", type=["xlsx"], key="style_excel"
-  )
-
-  if excel_file_3:
-    try:
-      df_style = pd.read_excel(excel_file_3)
-      st.success("Excel loaded successfully!")
-
-      cols = df_style.columns.tolist()
-      c1, c2 = st.columns(2)
-      with c1:
-        style_col = st.selectbox(
-            "Select STYLE ID Column:", cols, key="style_id_col"
-        )
-      with c2:
-        name_col = st.selectbox(
-            "Select Image/Reference Name Column (e.g. VAN/SKU):",
-            cols,
-            key="img_ref_col",
+        st.markdown("---")
+        remove_last_n = st.number_input(
+            "Remove N characters from the END (Last characters):",
+            min_value=0,
+            max_value=50,
+            value=0,
+            step=1,
         )
 
-      up_files_3 = st.file_uploader(
-          "Upload individual image files:",
-          type=["jpg", "jpeg", "png"],
-          accept_multiple_files=True,
-          key="style_images",
-      )
-      up_zip_3 = st.file_uploader(
-          "OR Upload a ZIP file of images:", type=["zip"], key="style_zip"
-      )
+        st.markdown("---")
+        case_option = st.selectbox(
+            "Change Text Case (Optional):", ["None", "UPPERCASE", "lowercase"]
+        )
 
-      uploaded_imgs_3 = load_uploaded_images(up_files_3, up_zip_3)
-
-      if uploaded_imgs_3:
-        st.info(f"Loaded {len(uploaded_imgs_3)} images.")
-
-        if st.button("Generate Style Folders & Zip"):
-          with st.spinner("Organizing into Style ID folders..."):
-            mapping = {}
-            for _, row in df_style.iterrows():
-              s_id = str(row[style_col]).strip()
-              r_val = str(row[name_col]).strip().upper()
-
-              # Excel side se bhi underscore ya extra suffix hata kar clean mapping banayein
-              r_val_clean = re.split(r"[_]", r_val)[0]
-              r_val_clean = re.sub(r"\(\d+\)$", "", r_val_clean).strip()
-              mapping[r_val_clean] = s_id
-
-            matched_count = 0
-            zip_buffer_3 = io.BytesIO()
-            seen_in_folder = {}
+        if st.button("Process & Rename Files"):
+            rename_zip_buffer = io.BytesIO()
+            renamed_count = 0
+            seen_names = {}
 
             with zipfile.ZipFile(
-                zip_buffer_3, "w", zipfile.ZIP_DEFLATED
+                rename_zip_buffer, "w", zipfile.ZIP_DEFLATED
             ) as zip_file:
-              for orig_name, content in uploaded_imgs_3:
-                base_ext = os.path.splitext(orig_name)[0]
+                for original_name, content in rename_images:
+                    name_part, ext = os.path.splitext(original_name)
 
-                # Image name side se bhi (2), (3) aur underscore "_" ke baad ka sab hata do
-                clean_name = re.sub(r"\(\d+\)$", "", base_ext).strip()
-                clean_name = re.split(r"[_]", clean_name)[
-                    0
-                ].strip().upper()
+                    if text_to_find:
+                        name_part = name_part.replace(text_to_find, text_replace)
+                    if remove_prefix and name_part.startswith(remove_prefix):
+                        name_part = name_part[len(remove_prefix) :]
+                    if remove_suffix and name_part.endswith(remove_suffix):
+                        name_part = name_part[: -len(remove_suffix)]
+                    if remove_last_n > 0:
+                        if len(name_part) > remove_last_n:
+                            name_part = name_part[:-remove_last_n]
+                        else:
+                            name_part = ""
 
-                if clean_name in mapping:
-                  style_folder = mapping[clean_name]
+                    if case_option == "UPPERCASE":
+                        name_part = name_part.upper()
+                    elif case_option == "lowercase":
+                        name_part = name_part.lower()
 
-                  final_name = orig_name
-                  folder_key = f"{style_folder}/{final_name}"
-                  if folder_key in seen_in_folder:
-                    seen_in_folder[folder_key] += 1
-                    n_part, ext = os.path.splitext(orig_name)
-                    final_name = f"{n_part}_{seen_in_folder[folder_key]}{ext}"
-                  else:
-                    seen_in_folder[folder_key] = 0
+                    new_filename = name_part + ext
 
-                  zip_path = f"{style_folder}/{final_name}"
-                  zip_file.writestr(zip_path, content)
-                  matched_count += 1
+                    if new_filename in seen_names:
+                        seen_names[new_filename] += 1
+                        new_filename = f"{name_part}_{seen_names[new_filename]}{ext}"
+                    else:
+                        seen_names[new_filename] = 0
 
-            zip_buffer_3.seek(0)
+                    zip_file.writestr(new_filename, content)
+                    renamed_count += 1
+
+            rename_zip_buffer.seek(0)
             st.success(
-                f"Successfully sorted {matched_count} images into Style ID"
-                " folders!"
+                f"Successfully renamed {renamed_count} files! Click below to download."
             )
 
             st.download_button(
-                label="📥 Download Style Folders (ZIP)",
-                data=zip_buffer_3,
-                file_name="Style_ID_Folders.zip",
+                label="📥 Download Renamed Pictures (ZIP)",
+                data=rename_zip_buffer,
+                file_name="renamed_myntra_photos.zip",
                 mime="application/zip",
             )
 
-    except Exception as e:
-      st.error(f"Error: {e}")
+# ==========================================
+# MODE 3: ORGANIZE PHOTOS BY STYLE ID
+# ==========================================
+elif app_mode == "📁 Organize Photos by Style ID (New)":
+    st.header("📁 Create Style ID Folders & Sort Images")
+    st.write(
+        "Yeh option Excel aur images ko match karega, aur underscore `_` ya"
+        " brackets `(2)` ke baad ke hisse ko ignore karke sahi folder mein dal dega."
+    )
+
+    excel_file_3 = st.file_uploader(
+        "Choose Excel file (.xlsx)", type=["xlsx"], key="style_excel"
+    )
+
+    if excel_file_3:
+        try:
+            df_style = pd.read_excel(excel_file_3)
+            st.success("Excel loaded successfully!")
+
+            cols = df_style.columns.tolist()
+            c1, c2 = st.columns(2)
+            with c1:
+                style_col = st.selectbox(
+                    "Select STYLE ID Column:", cols, key="style_id_col"
+                )
+            with c2:
+                name_col = st.selectbox(
+                    "Select Image/Reference Name Column (e.g. VAN/SKU):",
+                    cols,
+                    key="img_ref_col",
+                )
+
+            up_files_3 = st.file_uploader(
+                "Upload individual image files:",
+                type=["jpg", "jpeg", "png"],
+                accept_multiple_files=True,
+                key="style_images",
+            )
+            up_zip_3 = st.file_uploader(
+                "OR Upload a ZIP file of images:", type=["zip"], key="style_zip"
+            )
+
+            uploaded_imgs_3 = load_uploaded_images(up_files_3, up_zip_3)
+
+            if uploaded_imgs_3:
+                st.info(f"Loaded {len(uploaded_imgs_3)} images.")
+
+                if st.button("Generate Style Folders & Zip"):
+                    with st.spinner("Organizing into Style ID folders..."):
+                        mapping = {}
+                        for _, row in df_style.iterrows():
+                            s_id = str(row[style_col]).strip()
+                            r_val = str(row[name_col]).strip().upper()
+
+                            r_val_clean = re.split(r"[_]", r_val)[0]
+                            r_val_clean = re.sub(r"\(\d+\)$", "", r_val_clean).strip()
+                            mapping[r_val_clean] = s_id
+
+                        matched_count = 0
+                        zip_buffer_3 = io.BytesIO()
+                        seen_in_folder = {}
+
+                        with zipfile.ZipFile(
+                            zip_buffer_3, "w", zipfile.ZIP_DEFLATED
+                        ) as zip_file:
+                            for orig_name, content in uploaded_imgs_3:
+                                base_ext = os.path.splitext(orig_name)[0]
+
+                                clean_name = re.sub(r"\(\d+\)$", "", base_ext).strip()
+                                clean_name = re.split(r"[_]", clean_name)[
+                                    0
+                                ].strip().upper()
+
+                                if clean_name in mapping:
+                                    style_folder = mapping[clean_name]
+
+                                    final_name = orig_name
+                                    folder_key = f"{style_folder}/{final_name}"
+                                    if folder_key in seen_in_folder:
+                                        seen_in_folder[folder_key] += 1
+                                        n_part, ext = os.path.splitext(orig_name)
+                                        final_name = f"{n_part}_{seen_in_folder[folder_key]}{ext}"
+                                    else:
+                                        seen_in_folder[folder_key] = 0
+
+                                    zip_path = f"{style_folder}/{final_name}"
+                                    zip_file.writestr(zip_path, content)
+                                    matched_count += 1
+
+                        zip_buffer_3.seek(0)
+                        st.success(
+                            f"Successfully sorted {matched_count} images into Style ID folders!"
+                        )
+
+                        st.download_button(
+                            label="📥 Download Style Folders (ZIP)",
+                            data=zip_buffer_3,
+                            file_name="Style_ID_Folders.zip",
+                            mime="application/zip",
+                        )
+
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+# ==========================================
+# MODE 4: INSERT IMAGES INTO EXCEL AUTOMATICALLY (NEW)
+# ==========================================
+elif app_mode == "📊 Insert Images into Excel (Auto)":
+    st.header("📊 Insert Photos Automatically into Excel")
+    st.write(
+        "Yahan aap apni Excel aur Photos (ya ZIP) upload karein. App automatically Style Name match karke photo ko Excel ke cell mein insert kar dega."
+    )
+
+    excel_file_4 = st.file_uploader(
+        "Choose Excel file (.xlsx)", type=["xlsx"], key="excel_insert_file"
+    )
+
+    if excel_file_4:
+        try:
+            df_insert = pd.read_excel(excel_file_4)
+            st.success("Excel loaded successfully!")
+
+            cols_list = df_insert.columns.tolist()
+            match_col = st.selectbox(
+                "Select Style Name Column (jisse photo ka naam match hoga):",
+                cols_list,
+                key="match_col_name",
+            )
+            photo_col = st.selectbox(
+                "Select Photo Column (jahan photo lagani hai, e.g. PHOTO):",
+                cols_list,
+                key="photo_col_name",
+            )
+
+            up_files_4 = st.file_uploader(
+                "Upload individual pictures:",
+                type=["jpg", "jpeg", "png"],
+                accept_multiple_files=True,
+                key="insert_images",
+            )
+            up_zip_4 = st.file_uploader(
+                "OR Upload a ZIP file of images:", type=["zip"], key="insert_zip"
+            )
+
+            uploaded_imgs_4 = load_uploaded_images(up_files_4, up_zip_4)
+
+            if uploaded_imgs_4:
+                st.info(f"Loaded {len(uploaded_imgs_4)} images.")
+
+                if st.button("Generate Excel with Photos"):
+                    with st.spinner("Inserting photos into Excel..."):
+                        # Create a temp file to save and process with openpyxl
+                        temp_excel_path = "temp_excel.xlsx"
+                        excel_file_4.seek(0)
+                        with open(temp_excel_path, "wb") as f:
+                            f.write(excel_file_4.getvalue())
+
+                        wb = openpyxl.load_workbook(temp_excel_path)
+                        ws = wb.active
+
+                        # Map header names to column indices (1-based)
+                        headers = [cell.value for cell in ws[1]]
+                        match_col_idx = headers.index(match_col) + 1
+                        photo_col_idx = headers.index(photo_col) + 1
+
+                        # Index images by filename (without extension)
+                        img_dict = {}
+                        for fname, content in uploaded_imgs_4:
+                            b_name, _ = os.path.splitext(fname)
+                            img_dict[b_name.strip().upper()] = content
+
+                        inserted_count = 0
+
+                        # Iterate through rows
+                        for row in range(2, ws.max_row + 1):
+                            ws.row_dimensions[row].height = 75  # Set row height for photo
+                            cell_val = ws.cell(row=row, column=match_col_idx).value
+
+                            if cell_val is not None:
+                                key_str = str(cell_val).strip().upper()
+                                if key_str in img_dict:
+                                    img_bytes = img_dict[key_str]
+                                    img_io = io.BytesIO(img_bytes)
+
+                                    img = OpenpyxlImage(img_io)
+                                    img.width = 70
+                                    img.height = 70
+
+                                    col_letter = openpyxl.utils.get_column_letter(photo_col_idx)
+                                    ws.add_image(img, f"{col_letter}{row}")
+                                    inserted_count += 1
+
+                        # Set column width for photo column
+                        photo_col_letter = openpyxl.utils.get_column_letter(photo_col_idx)
+                        ws.column_dimensions[photo_col_letter].width = 15
+
+                        output_excel_buffer = io.BytesIO()
+                        wb.save(output_excel_buffer)
+                        output_excel_buffer.seek(0)
+
+                        st.success(f"Successfully inserted {inserted_count} photos into Excel!")
+
+                        st.download_button(
+                            label="📥 Download Excel with Photos (.xlsx)",
+                            data=output_excel_buffer,
+                            file_name="Catalog_With_Embedded_Photos.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        )
+
+                        if os.path.exists(temp_excel_path):
+                            os.remove(temp_excel_path)
+
+        except Exception as e:
+            st.error(f"Error: {e}")
